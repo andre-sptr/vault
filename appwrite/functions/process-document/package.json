@@ -1,0 +1,11 @@
+{
+  "name": "process-document",
+  "version": "1.0.0",
+  "description": "Extract text from documents",
+  "main": "src/main.js",
+  "type": "module",
+  "dependencies": {
+    "node-appwrite": "^14.0.0",
+    "pdf-parse": "^1.1.1"
+  }
+}
