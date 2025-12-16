@@ -1,0 +1,144 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Vault Design System - Secure, High-Tech, Professional */
+
+@layer base {
+  :root {
+    /* Light mode */
+    --background: 210 20% 98%;
+    --foreground: 222 20% 12%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 20% 12%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 20% 12%;
+
+    --primary: 195 100% 40%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 210 15% 93%;
+    --secondary-foreground: 222 20% 20%;
+
+    --muted: 210 15% 90%;
+    --muted-foreground: 215 15% 45%;
+
+    --accent: 195 90% 35%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 210 15% 85%;
+    --input: 210 15% 90%;
+    --ring: 195 100% 40%;
+
+    --radius: 0.75rem;
+
+    /* Custom Vault tokens - Light */
+    --glass: 210 15% 95%;
+    --glass-border: 210 15% 85%;
+    --glow: 195 100% 40%;
+    --surface-elevated: 0 0% 100%;
+    --text-secondary: 215 15% 50%;
+    --citation: 195 85% 40%;
+    --user-bubble: 195 80% 45%;
+    --ai-bubble: 210 15% 95%;
+
+    --sidebar-background: 210 20% 97%;
+    --sidebar-foreground: 222 20% 15%;
+    --sidebar-primary: 195 100% 40%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 210 15% 92%;
+    --sidebar-accent-foreground: 222 20% 12%;
+    --sidebar-border: 210 15% 88%;
+    --sidebar-ring: 195 100% 40%;
+  }
+
+  .dark {
+    --background: 222 20% 7%;
+    --foreground: 210 20% 95%;
+
+    --card: 215 25% 12%;
+    --card-foreground: 210 20% 95%;
+
+    --popover: 215 25% 10%;
+    --popover-foreground: 210 20% 95%;
+
+    --primary: 195 100% 50%;
+    --primary-foreground: 222 20% 7%;
+
+    --secondary: 215 20% 18%;
+    --secondary-foreground: 210 20% 90%;
+
+    --muted: 215 15% 20%;
+    --muted-foreground: 215 15% 55%;
+
+    --accent: 195 90% 45%;
+    --accent-foreground: 222 20% 7%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 210 20% 95%;
+
+    --border: 215 20% 20%;
+    --input: 215 20% 18%;
+    --ring: 195 100% 50%;
+
+    --sidebar-background: 222 22% 8%;
+    --sidebar-foreground: 210 20% 90%;
+    --sidebar-primary: 195 100% 50%;
+    --sidebar-primary-foreground: 222 20% 7%;
+    --sidebar-accent: 215 20% 15%;
+    --sidebar-accent-foreground: 210 20% 95%;
+    --sidebar-border: 215 20% 18%;
+    --sidebar-ring: 195 100% 50%;
+
+    /* Custom Vault tokens - Dark */
+    --glass: 215 25% 15%;
+    --glass-border: 215 20% 25%;
+    --glow: 195 100% 50%;
+    --surface-elevated: 215 22% 14%;
+    --text-secondary: 215 15% 60%;
+    --citation: 195 85% 55%;
+    --user-bubble: 195 80% 35%;
+    --ai-bubble: 215 25% 16%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border transition-colors duration-200;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-family: 'Inter', sans-serif;
+    transition: background-color 0.3s ease, color 0.3s ease;
+  }
+}
+
+@layer utilities {
+  .glass {
+    @apply bg-[hsl(var(--glass)/0.6)] backdrop-blur-xl border border-[hsl(var(--glass-border)/0.3)];
+  }
+
+  .glass-subtle {
+    @apply bg-[hsl(var(--glass)/0.4)] backdrop-blur-md border border-[hsl(var(--glass-border)/0.2)];
+  }
+
+  .glow {
+    box-shadow: 0 0 20px hsl(var(--glow) / 0.3), 0 0 40px hsl(var(--glow) / 0.1);
+  }
+
+  .glow-sm {
+    box-shadow: 0 0 10px hsl(var(--glow) / 0.2);
+  }
+
+  .text-gradient {
+    @apply bg-gradient-to-r from-[hsl(var(--primary))] to-[hsl(195_100%_70%)] bg-clip-text text-transparent;
+  }
+}
