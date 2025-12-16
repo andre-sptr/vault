@@ -1,127 +1,258 @@
-import { useState } from "react";
+import { useState, useCallback, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { motion, AnimatePresence } from "framer-motion";
+import { PanelRightOpen, PanelRightClose, Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Sidebar } from "@/components/vault/Sidebar";
-import { DocumentUpload } from "@/components/vault/DocumentUpload";
-import { DocumentPanel } from "@/components/vault/DocumentPanel";
 import { ChatPanel } from "@/components/vault/ChatPanel";
-import { useDocuments } from "@/hooks/use-documents";
+import { DocumentPanel } from "@/components/vault/DocumentPanel";
+import { DocumentUpload } from "@/components/vault/DocumentUpload";
+import { DocumentSearch } from "@/components/vault/DocumentSearch";
+import { useDocuments, Document } from "@/hooks/use-documents";
+import { useConversations, Citation, Conversation } from "@/hooks/use-conversations";
+import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { useAuth } from "@/hooks/use-auth";
-import { useIsMobile } from "@/hooks/use-mobile";
+import { streamVaultChat, parseCitations } from "@/lib/api/vault-chat";
+import { useToast } from "@/hooks/use-toast";
 
 const Index = () => {
-  const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null);
-  
-  // 1. Hapus 'refreshDocument' dari sini
-  const { documents, isLoading, deleteDocument } = useDocuments();
-  
-  const { user } = useAuth();
-  const isMobile = useIsMobile();
-  const [showSidebar, setShowSidebar] = useState(!isMobile);
+  const { user, isLoading: authLoading, signOut } = useAuth();
+  const navigate = useNavigate();
 
-  const handleDocumentSelect = (id: string) => {
-    setSelectedDocumentId(id);
-    if (isMobile) setShowSidebar(false);
-  };
-
-  const handleUploadComplete = () => {
-    // 2. Hapus baris ini: refreshDocument(); 
-    // React Query di useDocuments sudah otomatis melakukan refresh saat upload sukses.
-    console.log("Upload complete, list updated automatically via React Query");
-  };
-
-  const handleDeleteDocument = async (id: string) => {
-    // Cari dokumen lengkap berdasarkan ID untuk pass ke deleteDocument
-    const docToDelete = documents?.find(d => d.id === id); // Appwrite return .id (mapped from $id)
-    if (docToDelete) {
-        await deleteDocument.mutateAsync(docToDelete);
-        if (selectedDocumentId === id) {
-            setSelectedDocumentId(null);
-        }
+  // Redirect to auth if not logged in
+  useEffect(() => {
+    if (!authLoading && !user) {
+      navigate("/auth");
     }
+  }, [user, authLoading, navigate]);
+  const [isDocPanelOpen, setIsDocPanelOpen] = useState(true);
+  const [activeCitation, setActiveCitation] = useState<Citation | null>(null);
+  const [showUpload, setShowUpload] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
+  const [streamingContent, setStreamingContent] = useState("");
+  const { toast } = useToast();
+  
+  const { 
+    documents, 
+    isLoading: isLoadingDocuments,
+    selectedDocument, 
+    selectDocument, 
+    refreshDocument,
+    deleteDocument,
+  } = useDocuments();
+
+  const {
+    conversations,
+    currentConversation,
+    messages,
+    isLoadingConversations,
+    selectConversation,
+    createConversation,
+    addMessage,
+    clearConversation,
+    deleteConversation,
+    renameConversation,
+  } = useConversations(selectedDocument?.id);
+
+  const handleCitationClick = (citation: Citation) => {
+    setActiveCitation(citation);
+    setIsDocPanelOpen(true);
   };
 
-  const selectedDocument = documents?.find((d) => d.id === selectedDocumentId);
+  const handleUploadComplete = async (doc: { id: string; filename: string; status: string }) => {
+    setShowUpload(false);
+    setTimeout(() => refreshDocument(doc.id), 2000);
+  };
+
+  const handleNewChat = () => {
+    clearConversation();
+  };
+
+  const handleSearchSelect = (doc: Document) => {
+    selectDocument(doc);
+    setShowSearch(false);
+  };
+
+  const handleSelectConversation = async (conv: Conversation) => {
+    // Find the document for this conversation
+    if (conv.document_id) {
+      const doc = documents.find(d => d.id === conv.document_id);
+      if (doc) {
+        selectDocument(doc);
+      }
+    }
+    await selectConversation(conv);
+  };
+
+  const handleSendMessage = useCallback(async (content: string) => {
+    if (!selectedDocument) {
+      toast({
+        title: "No document selected",
+        description: "Please upload or select a document first.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Create conversation if none exists
+    let conv = currentConversation;
+    if (!conv) {
+      conv = await createConversation(selectedDocument.id, content.slice(0, 50));
+      if (!conv) {
+        toast({
+          title: "Error",
+          description: "Failed to create conversation.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
+    // Add user message
+    await addMessage("user", content);
+    setIsTyping(true);
+    setStreamingContent("");
+
+    // Build message history for context
+    const messageHistory = [
+      ...messages.map((m) => ({ role: m.role, content: m.content })),
+      { role: "user" as const, content },
+    ];
+
+    let fullResponse = "";
+
+    await streamVaultChat({
+      messages: messageHistory,
+      documentContext: { 
+        filename: selectedDocument.filename,
+        extractedText: selectedDocument.extracted_text || undefined,
+      },
+      onDelta: (delta) => {
+        fullResponse += delta;
+        setStreamingContent(fullResponse);
+      },
+      onDone: async () => {
+        const { text, citations } = parseCitations(fullResponse);
+        await addMessage("assistant", text, citations.length > 0 ? citations : undefined);
+        setStreamingContent("");
+        setIsTyping(false);
+      },
+      onError: (error) => {
+        toast({
+          title: "Error",
+          description: error,
+          variant: "destructive",
+        });
+        setIsTyping(false);
+        setStreamingContent("");
+      },
+    });
+  }, [selectedDocument, currentConversation, messages, createConversation, addMessage, toast]);
+
+  // Keyboard shortcuts
+  useKeyboardShortcuts({
+    onNewChat: handleNewChat,
+    onUpload: () => setShowUpload(true),
+    onSearch: () => setShowSearch(true),
+  });
+
+  // Show loading while checking auth
+  if (authLoading) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center bg-background">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  // Don't render if not authenticated
+  if (!user) {
+    return null;
+  }
 
   return (
-    <div className="flex h-screen bg-background overflow-hidden">
-      <Sidebar
-        documents={documents || []}
-        selectedId={selectedDocumentId}
-        onSelect={handleDocumentSelect}
-        onDelete={handleDeleteDocument}
-        isOpen={showSidebar}
-        onToggle={() => setShowSidebar(!showSidebar)}
-        user={user}
-        isLoading={isLoading}
+    <div className="flex h-screen w-full bg-background overflow-hidden">
+      {/* Left Sidebar */}
+      <Sidebar 
+        documents={documents}
+        selectedDocument={selectedDocument}
+        onSelectDocument={selectDocument}
+        onUploadClick={() => setShowUpload(true)}
+        onNewChat={handleNewChat}
+        onSearchClick={() => setShowSearch(true)}
+        conversations={conversations}
+        currentConversation={currentConversation}
+        onSelectConversation={handleSelectConversation}
+        onDeleteDocument={deleteDocument}
+        onDeleteConversation={deleteConversation}
+        onRenameConversation={renameConversation}
+        userEmail={user.email}
+        onSignOut={signOut}
+        isLoadingDocuments={isLoadingDocuments}
+        isLoadingConversations={isLoadingConversations}
       />
 
-      <main className={`flex-1 flex flex-col transition-all duration-300 ${
-        showSidebar && !isMobile ? "ml-0" : "ml-0"
-      }`}>
-        <div className="h-14 border-b flex items-center px-4 justify-between bg-card">
-          <div className="flex items-center gap-2">
-            {!showSidebar && (
-              <button
-                onClick={() => setShowSidebar(true)}
-                className="p-2 hover:bg-accent rounded-md"
-              >
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 15 15"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                  className="w-5 h-5"
-                >
-                  <path
-                    d="M1.5 3C1.22386 3 1 3.22386 1 3.5C1 3.77614 1.22386 4 1.5 4H13.5C13.7761 4 14 3.77614 14 3.5C14 3.22386 13.7761 3 13.5 3H1.5ZM1 7.5C1 7.22386 1.22386 7 1.5 7H13.5C13.7761 7 14 7.22386 14 7.5C14 7.77614 13.7761 8 13.5 8H1.5C1.22386 8 1 7.77614 1 7.5ZM1 11.5C1 11.2239 1.22386 11 1.5 11H13.5C13.7761 11 14 11.2239 14 11.5C14 11.7761 13.7761 12 13.5 12H1.5C1.22386 12 1 11.7761 1 11.5Z"
-                    fill="currentColor"
-                    fillRule="evenodd"
-                    clipRule="evenodd"
-                  />
-                </svg>
-              </button>
-            )}
-            <h1 className="font-semibold text-lg truncate">
-              {selectedDocument ? selectedDocument.filename : "Vault"}
-            </h1>
-          </div>
-          
-          <div className="flex items-center gap-2">
-            <DocumentUpload onUploadComplete={handleUploadComplete} onClose={function (): void {
-              throw new Error("Function not implemented.");
-            } } />
-          </div>
-        </div>
+      {/* Main Content Area */}
+      <div className="flex-1 flex relative">
+        {/* Chat Panel */}
+        <ChatPanel 
+          onCitationClick={handleCitationClick} 
+          selectedDocument={selectedDocument}
+          onUploadClick={() => setShowUpload(true)}
+          messages={messages}
+          currentConversation={currentConversation}
+          onSendMessage={handleSendMessage}
+          isTyping={isTyping}
+          streamingContent={streamingContent}
+        />
 
-        <div className="flex-1 overflow-hidden flex relative">
-          {selectedDocument ? (
-            <>
-              <div className={`flex-1 transition-all duration-300 ${isMobile ? 'hidden' : 'block'}`}>
-                <DocumentPanel document={selectedDocument} isOpen={false} onClose={function (): void {
-                  throw new Error("Function not implemented.");
-                } } />
-              </div>
-              <div className={`${isMobile ? 'w-full' : 'w-[400px] border-l'} bg-background`}>
-                <ChatPanel documentId={selectedDocument.id} />
-              </div>
-            </>
-          ) : (
-            <div className="flex-1 flex items-center justify-center text-muted-foreground p-8 text-center">
-              <div className="max-w-md">
-                <h2 className="text-2xl font-bold mb-4 text-foreground">Welcome to Vault</h2>
-                <p className="mb-8">
-                  Upload a document to start chatting, or select an existing document from the sidebar.
-                </p>
-                <div className="flex justify-center">
-                  <DocumentUpload onUploadComplete={handleUploadComplete} onClose={function (): void {
-                      throw new Error("Function not implemented.");
-                    } } />
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      </main>
+        {/* Toggle Button for Document Panel */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.5 }}
+          className="absolute top-4 right-4 z-10"
+        >
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setIsDocPanelOpen(!isDocPanelOpen)}
+            className="w-10 h-10 rounded-xl glass hover:bg-primary/10 hover:text-primary transition-all"
+          >
+            {isDocPanelOpen ? (
+              <PanelRightClose className="w-5 h-5" />
+            ) : (
+              <PanelRightOpen className="w-5 h-5" />
+            )}
+          </Button>
+        </motion.div>
+
+        {/* Right Document Panel */}
+        <DocumentPanel
+          isOpen={isDocPanelOpen}
+          onClose={() => setIsDocPanelOpen(false)}
+          highlightedText={activeCitation?.text}
+          document={selectedDocument}
+        />
+      </div>
+
+      {/* Upload Modal */}
+      <AnimatePresence>
+        {showUpload && (
+          <DocumentUpload 
+            onUploadComplete={handleUploadComplete}
+            onClose={() => setShowUpload(false)}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Search Modal */}
+      <DocumentSearch
+        isOpen={showSearch}
+        onClose={() => setShowSearch(false)}
+        onSelectDocument={handleSearchSelect}
+      />
     </div>
   );
 };
